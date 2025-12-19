@@ -1,0 +1,5 @@
+YEAR: 2025
+COPYRIGHT HOLDER: plinkR contributors
+
+Portions of the C++ BED reader code are adapted from plink2R
+(https://github.com/gabraham/plink2R) under the GNU GPL v3 license.
