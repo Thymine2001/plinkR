@@ -1,0 +1,18 @@
+Package: plinkR
+Title: PLINK Command-Line Wrapper for R
+Version: 0.2.0
+Authors@R: c(person("Huangyi Tang", email = "tang749@purdue.edu", role = c("aut", "cre")))
+Description: Execute PLINK/PLINK2 commands from R, capture logs/outputs, and load BED files using a bundled C++ reader adapted from plink2R. Includes bidirectional PLINK <-> BLUPF90 format conversion with automatic allele restoration. Automatically reads report tables from analysis flags.
+License: MIT + file LICENSE
+Copyright: file COPYRIGHTS
+Encoding: UTF-8
+Imports:
+    Rcpp
+LinkingTo:
+    Rcpp
+Suggests:
+    data.table,
+    testthat,
+    linkbreedeR
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

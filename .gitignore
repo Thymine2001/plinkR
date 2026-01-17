@@ -1,0 +1,9 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Compiled files
+src/*.o
+src/*.so
+src/*.dll
