@@ -11,10 +11,20 @@ NULL
 # Rcpp accelerated parsing (compiled on load if available)
 # ============================================================================
 
-.blupf90_rcpp_available <- FALSE
+# Use a local environment to avoid locked binding issues
+.blupf90_env <- new.env(parent = emptyenv())
+.blupf90_env$rcpp_compiled <- FALSE
+.blupf90_env$rcpp_available <- FALSE
 
 .compile_blupf90_rcpp <- function() {
+  # Already compiled this session
+  if (.blupf90_env$rcpp_compiled) {
+    return(.blupf90_env$rcpp_available)
+  }
+  
   if (!requireNamespace("Rcpp", quietly = TRUE)) {
+    .blupf90_env$rcpp_compiled <- TRUE
+    .blupf90_env$rcpp_available <- FALSE
     return(FALSE)
   }
   
@@ -143,8 +153,12 @@ int write_ped_fast_cpp(
   return n_samples;
 }
     ')
+    .blupf90_env$rcpp_compiled <- TRUE
+    .blupf90_env$rcpp_available <- TRUE
     return(TRUE)
   }, error = function(e) {
+    .blupf90_env$rcpp_compiled <- TRUE
+    .blupf90_env$rcpp_available <- FALSE
     return(FALSE)
   })
 }
@@ -201,9 +215,8 @@ plink_to_blupf90 <- function(
   }
   
   # Initialize Rcpp if not done
-
-if (!.blupf90_rcpp_available) {
-    .blupf90_rcpp_available <<- .compile_blupf90_rcpp()
+  if (!.blupf90_env$rcpp_compiled) {
+    .compile_blupf90_rcpp()
   }
   
   # Get PLINK path using plinkR's detection
@@ -278,7 +291,7 @@ if (!.blupf90_rcpp_available) {
   # Process .raw file
   if (verbose) cat("Step 3: Processing plink output...\n")
   
-  if (.blupf90_rcpp_available && exists("parse_and_write_plink_raw_cpp")) {
+  if (.blupf90_env$rcpp_available && exists("parse_and_write_plink_raw_cpp")) {
     if (verbose) cat("  Using Rcpp acceleration...\n")
     n_processed <- parse_and_write_plink_raw_cpp(
       raw_file = raw_file,
@@ -478,8 +491,8 @@ blupf90_to_plink <- function(
 ) {
   
   # Initialize Rcpp if not done
-  if (!.blupf90_rcpp_available) {
-    .blupf90_rcpp_available <<- .compile_blupf90_rcpp()
+  if (!.blupf90_env$rcpp_compiled) {
+    .compile_blupf90_rcpp()
   }
   
   # Auto-detect files from prefix
@@ -589,7 +602,7 @@ blupf90_to_plink <- function(
   }
   
   # Write PED file
-  if (.blupf90_rcpp_available && exists("write_ped_fast_cpp")) {
+  if (.blupf90_env$rcpp_available && exists("write_ped_fast_cpp")) {
     if (verbose) cat("Using Rcpp fast writer for PED...\n")
     geno_matrix[is.na(geno_matrix)] <- -1
     write_ped_fast_cpp(sample_ids, geno_matrix, allele_A1, allele_A2, ped_out)
