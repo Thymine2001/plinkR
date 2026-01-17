@@ -323,20 +323,18 @@ plink_to_blupf90 <- function(
   # Read .raw header for BIM generation
   raw_header_line <- readLines(raw_file, n = 1)
   
-  # Create MAP file
+  # Create MAP file (standard PLINK format: CHR SNP CM POS, no header)
   if (verbose) cat("Step 4: Creating BLUPF90 map and BIM files ...\n")
   
-  map_output <- cbind(
-    SNP_ID = map_data[[2]],
+  map_df <- data.frame(
     CHR = map_data[[1]],
-    POS = map_data[[4]]
+    SNP = map_data[[2]],
+    CM = map_data[[3]],
+    POS = map_data[[4]],
+    stringsAsFactors = FALSE
   )
-  
-  map_text <- c(
-    "SNP_ID CHR POS",
-    apply(map_output, 1, function(x) paste(x, collapse = " "))
-  )
-  writeLines(map_text, map_out_file)
+  write.table(map_df, file = map_out_file, quote = FALSE, sep = "\t",
+              row.names = FALSE, col.names = FALSE)
   
   # Create BIM file
   orig_bim_file <- paste0(prefix, ".bim")
@@ -515,24 +513,43 @@ blupf90_to_plink <- function(
   
   if (verbose) cat("\n========== BLUPF90 → PLINK (PED/MAP) =========\n")
   
-  # Read map file
+  # Read map file - detect format automatically
   first_line <- readLines(map_file, n = 1)
   first_fields <- strsplit(trimws(first_line), "\\s+")[[1]]
-  has_header <- !grepl("^[0-9]+$", first_fields[1]) ||
-                tolower(first_fields[1]) %in% c("snp_id", "snp", "chr", "chrom")
+  
+  # Check if first field is a header keyword
+  has_header <- tolower(first_fields[1]) %in% c("snp_id", "snp", "chr", "chrom", "chromosome")
   
   map <- read.table(map_file, header = has_header, stringsAsFactors = FALSE)
   
-  # Normalize columns
+  # Normalize columns based on number of columns
+  # Standard PLINK MAP: CHR SNP CM POS (4 cols)
+  # BLUPF90 style:      SNP_ID CHR POS (3 cols)
   if (ncol(map) >= 4) {
-    names(map)[1:4] <- c("CHR", "SNP_ID", "CM", "POS")
-    map <- map[, c("SNP_ID", "CHR", "POS")]
-  } else if (ncol(map) >= 3) {
-    names(map)[1:3] <- c("SNP_ID", "CHR", "POS")
-    map <- map[, 1:3]
+    # Standard PLINK format: CHR SNP CM POS
+    colnames(map)[1:4] <- c("CHR", "SNP_ID", "CM", "POS")
+  } else if (ncol(map) == 3) {
+    # Could be BLUPF90 (SNP CHR POS) or partial PLINK (CHR SNP POS)
+    # Check if first column looks like chromosome (numeric or X/Y/MT)
+    first_col_numeric <- !is.na(suppressWarnings(as.numeric(map[1, 1]))) ||
+                         grepl("^(X|Y|MT|chr)", map[1, 1], ignore.case = TRUE)
+    
+    if (first_col_numeric) {
+      # Looks like CHR SNP POS format
+      colnames(map) <- c("CHR", "SNP_ID", "POS")
+      map$CM <- 0
+    } else {
+      # Looks like SNP CHR POS format (BLUPF90 style)
+      colnames(map) <- c("SNP_ID", "CHR", "POS")
+      map$CM <- 0
+    }
   } else {
     stop("Map file must have at least 3 columns")
   }
+  
+  # Ensure required columns exist
+  if (!"CM" %in% names(map)) map$CM <- 0
+  map <- map[, c("CHR", "SNP_ID", "CM", "POS")]
   
   n_snps <- nrow(map)
   if (verbose) cat("SNPs:", n_snps, "\n")
@@ -541,10 +558,13 @@ blupf90_to_plink <- function(
   map_out <- file.path(dirname(out_prefix), paste0(basename(out_prefix), ".map"))
   ped_out <- file.path(dirname(out_prefix), paste0(basename(out_prefix), ".ped"))
   
-  # Write MAP file
+  # Write MAP file (standard PLINK format: CHR SNP CM POS, no header)
   snp_ids <- as.character(map$SNP_ID)
   map_df <- data.frame(
-    CHR = map$CHR, SNP_ID = snp_ids, CM = 0, POS = map$POS,
+    CHR = map$CHR, 
+    SNP_ID = snp_ids, 
+    CM = map$CM, 
+    POS = map$POS,
     stringsAsFactors = FALSE
   )
   write.table(map_df, file = map_out, quote = FALSE, sep = "\t",

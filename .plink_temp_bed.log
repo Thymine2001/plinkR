@@ -1,0 +1,19 @@
+PLINK v1.9.0-b.7.7 64-bit (22 Oct 2024)
+Options in effect:
+  --allow-extra-chr
+  --allow-no-sex
+  --chr-set 1
+  --file /Users/huangyitang/Desktop/toy
+  --make-bed
+  --nonfounders
+  --out ./.plink_temp_bed
+
+Hostname: Thymines-MacBook-Pro.local
+Working directory: /Users/huangyitang/Library/CloudStorage/OneDrive-purdue.edu/linkbreedeR/plinkR-main
+Start time: Fri Jan 16 20:58:21 2026
+
+Random number seed: 1768615101
+16384 MB RAM detected; reserving 8192 MB for main workspace.
+Error: Invalid bp coordinate on line 1 of .map file.
+
+End time: Fri Jan 16 20:58:21 2026
