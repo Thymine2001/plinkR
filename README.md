@@ -66,7 +66,7 @@ plink_to_blupf90("pigs")
 
 **Output files:**
 - `<prefix>.txt` - BLUPF90 continuous genotype format (ID + 0/1/2 string)
-- `<prefix>.map` - SNP position file (SNP_ID CHR POS)
+- `<prefix>.map` - SNP position file (PLINK 4-column format: `CHR SNP CM POS`)
 - `<prefix>.bim` - Allele information for reverse conversion
 
 ### BLUPF90 → PLINK

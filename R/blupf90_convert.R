@@ -252,12 +252,37 @@ plink_to_blupf90 <- function(
   # Read MAP/BIM for chromosome detection
   if (verbose) cat("Step 1: Detecting chromosome range from", basename(map_file), "...\n")
   
-  map_data <- read.table(map_file, colClasses = c("integer", "character", "numeric", "numeric"))
-  max_chr <- max(as.numeric(map_data[[1]]), na.rm = TRUE)
+  map_raw <- read.table(
+    map_file,
+    header = FALSE,
+    stringsAsFactors = FALSE,
+    fill = TRUE,
+    comment.char = "",
+    quote = ""
+  )
+  if (ncol(map_raw) < 4) {
+    stop("Map/BIM file must have at least 4 columns: ", map_file)
+  }
+  map_data <- map_raw[, 1:4, drop = FALSE]
+  colnames(map_data) <- c("CHR", "SNP", "CM", "POS")
+  
+  chr_numeric <- suppressWarnings(as.numeric(map_data$CHR))
+  valid_chr <- chr_numeric[is.finite(chr_numeric) & chr_numeric > 0]
+  max_chr <- if (length(valid_chr) > 0) max(valid_chr) else 40
+  
+  # Match the shell workflow: BLUPF90 often rejects chr=0, so normalize to max_chr in .map output.
+  zero_chr_idx <- is.finite(chr_numeric) & chr_numeric == 0
+  chr_for_map <- as.character(map_data$CHR)
+  if (any(zero_chr_idx)) {
+    chr_for_map[zero_chr_idx] <- as.character(max_chr)
+  }
   
   if (verbose) {
     cat("  Max chromosome:", max_chr, "\n")
     cat("  SNP count:", nrow(map_data), "\n")
+    if (any(zero_chr_idx)) {
+      cat("  Replacing chr=0 with", max_chr, "in output .map\n")
+    }
   }
   
   # Build PLINK command
@@ -265,10 +290,11 @@ plink_to_blupf90 <- function(
   
   temp_prefix <- file.path(tempdir, ".plink_temp")
   
+  input_flag <- if (has_bed) "--bfile" else "--file"
   plink_args <- c(
-    "--file", prefix,
+    input_flag, prefix,
     "--allow-extra-chr",
-    "--chr-set", max_chr,
+    "--chr-set", as.character(max_chr),
     "--allow-no-sex",
     "--nonfounders",
     "--recode", "A",
@@ -280,10 +306,16 @@ plink_to_blupf90 <- function(
   if (!nonfounders) plink_args <- plink_args[plink_args != "--nonfounders"]
   
   # Run PLINK
-  cmd <- paste(plink_exe, paste(plink_args, collapse = " "))
-  result <- system(cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
+  plink_out <- suppressWarnings(tryCatch(
+    system2(plink_exe, args = plink_args, stdout = TRUE, stderr = TRUE),
+    error = function(e) structure(character(), status = 1L, msg = conditionMessage(e))
+  ))
+  result <- attr(plink_out, "status")
+  if (is.null(result)) result <- 0L
   
-  if (result != 0) stop("PLINK command failed. Check input files.")
+  if (result != 0) {
+    stop("PLINK command failed. Check input files.")
+  }
   
   raw_file <- paste0(temp_prefix, ".raw")
   if (!file.exists(raw_file)) stop("PLINK output file not found: ", raw_file)
@@ -303,10 +335,17 @@ plink_to_blupf90 <- function(
   } else {
     # Pure R fallback
     if (verbose) cat("  Using pure R (slower)...\n")
-    raw_lines <- readLines(raw_file)
+    raw_lines <- readLines(raw_file, warn = FALSE)
     data_lines <- raw_lines[-1]
     
-    geno_matrix <- do.call(rbind, strsplit(data_lines, " "))
+    parsed_lines <- strsplit(trimws(data_lines), "\\s+")
+    if (length(parsed_lines) == 0L) {
+      stop("No genotype records found in PLINK .raw output")
+    }
+    if (any(lengths(parsed_lines) < 7L)) {
+      stop("Unexpected .raw format: some rows have fewer than 7 fields")
+    }
+    geno_matrix <- do.call(rbind, parsed_lines)
     sample_ids <- geno_matrix[, 2]
     geno_data <- geno_matrix[, 7:ncol(geno_matrix), drop = FALSE]
     
@@ -327,10 +366,10 @@ plink_to_blupf90 <- function(
   if (verbose) cat("Step 4: Creating BLUPF90 map and BIM files ...\n")
   
   map_df <- data.frame(
-    CHR = map_data[[1]],
-    SNP = map_data[[2]],
-    CM = map_data[[3]],
-    POS = map_data[[4]],
+    CHR = chr_for_map,
+    SNP = map_data$SNP,
+    CM = map_data$CM,
+    POS = map_data$POS,
     stringsAsFactors = FALSE
   )
   write.table(map_df, file = map_out_file, quote = FALSE, sep = "\t",
@@ -348,11 +387,18 @@ plink_to_blupf90 <- function(
     if (verbose) cat("  Generating BIM from PED file...\n")
     
     temp_bed_prefix <- file.path(tempdir, ".plink_temp_bed")
-    bed_cmd <- paste(plink_exe, "--file", prefix,
-                     "--allow-extra-chr --chr-set", max_chr,
-                     "--allow-no-sex --nonfounders",
-                     "--make-bed --out", temp_bed_prefix)
-    bed_result <- system(bed_cmd, ignore.stdout = TRUE, ignore.stderr = TRUE)
+    bed_args <- c(
+      "--file", prefix,
+      "--allow-extra-chr", "--chr-set", as.character(max_chr),
+      "--allow-no-sex", "--nonfounders",
+      "--make-bed", "--out", temp_bed_prefix
+    )
+    bed_out <- suppressWarnings(tryCatch(
+      system2(plink_exe, args = bed_args, stdout = TRUE, stderr = TRUE),
+      error = function(e) structure(character(), status = 1L, msg = conditionMessage(e))
+    ))
+    bed_result <- attr(bed_out, "status")
+    if (is.null(bed_result)) bed_result <- 0L
     
     temp_bim <- paste0(temp_bed_prefix, ".bim")
     if (bed_result == 0 && file.exists(temp_bim)) {
@@ -424,7 +470,7 @@ plink_to_blupf90 <- function(
     if (file.exists(f)) file.remove(f)
   }
   
-  n_individuals <- as.integer(system(paste("wc -l <", geno_out_file), intern = TRUE))
+  n_individuals <- length(readLines(geno_out_file, warn = FALSE))
   
   if (verbose) {
     cat("\n========== Conversion Complete ==========\n")
